@@ -1,5 +1,7 @@
 package main
 
+import "time"
+
 // MemoryMetrics stores memory usage details in GB.
 type MemoryMetrics struct {
 	SwapTotal float64 `json:"swap_total"`
@@ -22,4 +24,5 @@ type MactopMetrics struct {
 	GPUUsagePercent float64       `json:"gpu_usage_percent"`
 	MemoryGB        MemoryMetrics `json:"memory_gb"`
 	PowerWatts      PowerMetrics  `json:"power_watts"`
+	SampleTime            time.Time     `json:"sample_time"`
 }
