@@ -13,9 +13,12 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// runScrapeTask collects metrics at a given interval for a total duration.
-// It returns a slice of all collected metrics or an error if the context is canceled prematurely.
-func runScrapeTask(ctx context.Context, totalDuration, interval time.Duration, fetcher *MactopMetricsFetcher) ([]*MactopMetrics, error) {
+const maxRecordsPerFile = 1024 // Define the maximum records per file
+const filenameIndexWidth = 4   // Width for zero-padding file index (e.g., 0001, 0123)
+
+// runScrapeTask collects metrics at a given interval for a total duration and saves them incrementally.
+// It returns an error if the task is interrupted prematurely.
+func runScrapeTask(ctx context.Context, totalDuration, interval time.Duration, fetcher *MactopMetricsFetcher, fullOutputDir string) error {
 	// a new context that is automatically canceled after totalDuration.
 	taskCtx, cancel := context.WithTimeout(ctx, totalDuration)
 	defer cancel()
@@ -23,12 +26,42 @@ func runScrapeTask(ctx context.Context, totalDuration, interval time.Duration, f
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	var fetchedResults []*MactopMetrics
+	var (
+		currentPartMetrics []*MactopMetrics // Buffer for metrics in the current part file
+		fileIndex          int              // Index for the current part file
+		recordCount        int              // Count of records in the current buffer
+	)
 
 	log.Info().
 		Str("duration", totalDuration.String()).
 		Str("interval", interval.String()).
-		Msg("Starting timed scrape task.")
+		Str("outputDir", fullOutputDir).
+		Msg("Starting timed scrape task with incremental saving.")
+
+	// Helper function to write the current part to a file
+	writeCurrentPart := func() {
+		if len(currentPartMetrics) == 0 {
+			return // Nothing to write
+		}
+
+		outputFileName := filepath.Join(fullOutputDir, fmt.Sprintf("mactop_metrics_part_%0*d.json", filenameIndexWidth, fileIndex))
+
+		jsonData, err := json.MarshalIndent(currentPartMetrics, "", "  ")
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to marshal results to JSON for part file")
+			return // Don't fatally exit, try to continue scraping
+		}
+
+		err = os.WriteFile(outputFileName, jsonData, 0644)
+		if err != nil {
+			log.Error().Err(err).Msgf("Failed to write metrics to file %s", outputFileName)
+			return // Don't fatally exit
+		}
+
+		log.Info().Str("filename", outputFileName).Int("records", len(currentPartMetrics)).Msg("Metrics part successfully saved to file.")
+		currentPartMetrics = nil // Reset for the next part
+		fileIndex++              // Increment for the next file
+	}
 
 	// Perform an initial scrape immediately without waiting for the first tick.
 	log.Debug().Msg("Performing initial scrape...")
@@ -36,8 +69,15 @@ func runScrapeTask(ctx context.Context, totalDuration, interval time.Duration, f
 	if err != nil {
 		log.Error().Err(err).Msg("Failed initial scrape")
 	} else {
-		fetchedResults = append(fetchedResults, metrics)
+		currentPartMetrics = append(currentPartMetrics, metrics)
+		recordCount++
 		log.Info().Interface("metrics", metrics).Msg("Initial scrape successful")
+	}
+
+	// Check if initial scrape filled a part
+	if recordCount >= maxRecordsPerFile {
+		writeCurrentPart()
+		recordCount = 0
 	}
 
 	for {
@@ -45,14 +85,17 @@ func runScrapeTask(ctx context.Context, totalDuration, interval time.Duration, f
 		case <-taskCtx.Done():
 			// The context's deadline was exceeded or the parent context was canceled.
 			err := taskCtx.Err()
+			log.Info().Int("remaining_records", len(currentPartMetrics)).Msg("Scrape task finished, writing remaining metrics.")
+			writeCurrentPart() // Write any remaining buffered metrics
+
 			if errors.Is(err, context.DeadlineExceeded) {
 				// This is the expected "success" case: the timer ran out.
 				log.Info().Msg("Scrape task finished after specified duration.")
-				return fetchedResults, nil // Return the metrics collected so far.
+				return nil // Return nil error for successful completion
 			}
 			// This means the parent context was canceled before the timeout.
 			log.Warn().Err(err).Msg("Scrape task was canceled before completion.")
-			return fetchedResults, err // Return collected data and the cancellation error.
+			return err // Return the cancellation error.
 
 		case <-ticker.C:
 			log.Debug().Msg("Ticker ticked, fetching new metrics...")
@@ -61,8 +104,15 @@ func runScrapeTask(ctx context.Context, totalDuration, interval time.Duration, f
 				log.Error().Err(err).Msg("Failed to fetch metrics during scrape")
 				continue // Don't stop the whole task for one failed scrape.
 			}
-			fetchedResults = append(fetchedResults, metrics)
+
+			currentPartMetrics = append(currentPartMetrics, metrics)
+			recordCount++
 			log.Info().Interface("metrics", metrics).Msg("Successfully scraped metrics")
+
+			if recordCount >= maxRecordsPerFile {
+				writeCurrentPart()
+				recordCount = 0 // Reset record count for the new file
+			}
 		}
 	}
 }
@@ -70,10 +120,10 @@ func runScrapeTask(ctx context.Context, totalDuration, interval time.Duration, f
 func main() {
 	// command-line flags
 	var (
-		outputDir       string
+		outputDir          string
 		scrapeIntervalSec  int
 		totalDurationSec   int
-		mactopBaseURL   string
+		mactopBaseURL      string
 	)
 
 	// Custom usage message for the help flag
@@ -86,10 +136,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  %s --duration 60 --interval 5 --output-dir \"./metrics_data\" --mactop-url \"http://192.168.1.5:2211\"\n", os.Args[0])
 	}
 
-	flag.StringVar(&outputDir, "output-dir", "output", "Directory to save collected metrics.")
-	flag.IntVar(&scrapeIntervalSec, "interval", 2, "Scrape interval in seconds.")
-	flag.IntVar(&totalDurationSec, "duration", 10, "Total duration to run the scrape task in seconds.")
-	flag.StringVar(&mactopBaseURL, "mactop-url", "localhost:2211", "Base URL for the Mactop metrics API.")
+	flag.StringVar(&outputDir, "output-dir", "output", "Directory to save collected metrics. Default is 'output'.")
+	flag.IntVar(&scrapeIntervalSec, "interval", 2, "Scrape interval in seconds. 2 seconds by default.")
+	flag.IntVar(&totalDurationSec, "duration", 60, "Total duration to run the scrape task in seconds. 60 seconds by default.")
+	flag.StringVar(&mactopBaseURL, "mactop-url", "http://localhost:2211", "Base URL for the Mactop metrics API. Default is 'http://localhost:2211'.")
 	flag.Parse()
 
 	log.Info().
@@ -109,47 +159,25 @@ func main() {
 	totalDuration := time.Duration(totalDurationSec) * time.Second
 	scrapeInterval := time.Duration(scrapeIntervalSec) * time.Second
 
+	// Create a subdirectory named by running datetime
+	// Format:YYYYMMDD_HHMMSS (e.g., 20250622_090908)
+	timestampDir := time.Now().Format("20060102_150405")
+	fullOutputDir := filepath.Join(outputDir, timestampDir)
+
+	// Create the directory if it doesn't exist
+	if err := os.MkdirAll(fullOutputDir, 0755); err != nil { // 0755: rwx for owner, rx for others
+		log.Fatal().Err(err).Str("path", fullOutputDir).Msg("Failed to create output directory")
+	}
+	log.Info().Str("path", fullOutputDir).Msg("Output directory created.")
+
 	// Run the task. This call will block until the task is complete (or canceled).
 	// We use context.Background() because we don't need any special cancellation from a parent.
-	collectedMetrics, err := runScrapeTask(context.Background(), totalDuration, scrapeInterval, fetcher)
-	if err != nil && !errors.Is(err, context.Canceled) {
-		log.Error().Err(err).Msg("Scrape task failed")
-	}
-
-	log.Info().Int("count", len(collectedMetrics)).Msg("Scraping complete.")
-
-// --- Store the collected metrics into a file ---
-	if len(collectedMetrics) > 0 {
-		// Create a subdirectory named by running datetime
-		// Format: YYYYMMDD_HHMMSS (e.g., 20250622_090908)
-		timestampDir := time.Now().Format("20060102_150405")
-		fullOutputDir := filepath.Join(outputDir, timestampDir)
-
-		// Create the directory if it doesn't exist
-		if err := os.MkdirAll(fullOutputDir, 0755); err != nil { // 0755: rwx for owner, rx for others
-			log.Fatal().Err(err).Str("path", fullOutputDir).Msg("Failed to create output directory")
-		}
-		log.Info().Str("path", fullOutputDir).Msg("Output directory created.")
-
-		outputFileName := filepath.Join(fullOutputDir, "mactop_metrics.json")
-
-		jsonData, err := json.MarshalIndent(collectedMetrics, "", "  ")
-		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to marshal results to JSON")
-		}
-
-		// Write the JSON data to the file.
-		err = os.WriteFile(outputFileName, jsonData, 0644) // 0644 are file permissions
-		if err != nil {
-			log.Fatal().Err(err).Msgf("Failed to write metrics to file %s", outputFileName)
-		}
-
-		log.Info().Str("filename", outputFileName).Msg("Metrics successfully saved to file.")
-		log.Info().Msgf("Collected Metrics Saved to %s", outputFileName)
+	err = runScrapeTask(context.Background(), totalDuration, scrapeInterval, fetcher, fullOutputDir)
+	if err != nil && !errors.Is(err, context.DeadlineExceeded) { // DeadlineExceeded is a "successful" end
+		log.Error().Err(err).Msg("Scrape task failed or was canceled prematurely.")
 	} else {
-		log.Warn().Msg("No metrics were collected to save.")
+		log.Info().Msg("Scrape task completed.")
 	}
+
+	log.Info().Msgf("Collected Metrics Saved to directory: %s", fullOutputDir)
 }
-
-
-
