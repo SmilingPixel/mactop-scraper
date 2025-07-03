@@ -37,6 +37,16 @@ from typing import Any, Dict, List, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import MaxNLocator
+import re
+
+# Try to import dateutil.parser for robust timestamp parsing
+try:
+    from dateutil import parser as dateparser
+    HAS_DATEUTIL = True
+except ImportError:
+    HAS_DATEUTIL = False
+    print("Warning: 'python-dateutil' not found. Timestamps will not be parsed for duration calculation. Install with 'pip install python-dateutil' for full functionality.")
+
 
 METRICS_TO_ANALYZE = [
     ("CPU Usage (%)", "cpu_usage_percent"),
@@ -58,22 +68,23 @@ def parse_arguments() -> argparse.Namespace:
         argparse.Namespace: An object containing the parsed arguments.
     """
     parser = argparse.ArgumentParser(
-        description="Analyze mactop metrics from a JSON file.",
+        description="Analyze mactop metrics from a directory containing JSON part files.",
         formatter_class=argparse.RawTextHelpFormatter,
         epilog="""
 Example usage:
-  # Generate a report from metrics.json and save it to the 'output' directory
-  python mactop_analyzer.py --file-path ./metrics.json --output-dir ./output
+  # Analyze metrics from a directory named '20250622_090908' inside './metrics_data'
+  # and save results to the 'analysis_results' directory.
+  python mactop_analyzer.py --input-dir ./metrics_data/20250622_090908 --output-dir ./analysis_results
 
-  # Generate a report and also create line charts for each metric
-  python mactop_analyzer.py --file-path ./metrics.json --output-dir ./output --plot
+  # Analyze and also create line charts
+  python mactop_analyzer.py --input-dir ./metrics_data/20250622_090908 --output-dir ./analysis_results --plot
 """,
     )
     parser.add_argument(
-        "--file-path",
+        "--input-dir",
         type=Path,
         required=True,
-        help="Path to the input JSON file containing mactop metrics.",
+        help="Path to the input directory containing mactop metrics part files (e.g., mactop_metrics_part_0000.json).",
     )
     parser.add_argument(
         "--output-dir",
@@ -89,36 +100,57 @@ Example usage:
     return parser.parse_args()
 
 
-def load_and_prepare_data(file_path: Path) -> Dict[str, List[Any]]:
-    """
-    Loads and prepares the metrics data from the given JSON file.
+def natural_sort_key(s):
+    """Key for natural sorting of strings containing numbers."""
+    return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s)]
 
-    This function reads the JSON file, extracts the relevant metrics, and calculates
-    derived metrics such as memory and swap usage percentages.
+
+def load_and_prepare_data(input_dir: Path) -> Dict[str, List[Any]]:
+    """
+    Loads and prepares the metrics data from all JSON part files in the given directory.
+
+    This function reads all 'mactop_metrics_part_XXXX.json' files,
+    extracts the relevant metrics, and calculates derived metrics.
 
     Args:
-        file_path (Path): The path to the input JSON file.
+        input_dir (Path): The path to the input directory.
 
     Returns:
         Dict[str, List[Any]]: A dictionary where keys are metric names and values
                                are lists of the metric's values over time.
 
     Raises:
-        FileNotFoundError: If the specified file_path does not exist.
-        ValueError: If the JSON file is malformed or the data is not in the
-                    expected format.
+        FileNotFoundError: If the specified input_dir does not exist.
+        ValueError: If no JSON part files are found or data is malformed.
     """
-    if not file_path.is_file():
-        raise FileNotFoundError(f"Error: Input file not found at {file_path}")
+    if not input_dir.is_dir():
+        raise FileNotFoundError(f"Error: Input directory not found at {input_dir}")
 
-    with open(file_path, "r") as f:
+    all_data_records: List[Dict[str, Any]] = []
+    
+    # Find all part files and sort them naturally
+    json_files = sorted(input_dir.glob("mactop_metrics_part_*.json"), key=lambda p: natural_sort_key(p.name))
+
+    if not json_files:
+        raise ValueError(f"Error: No 'mactop_metrics_part_*.json' files found in {input_dir}")
+
+    print(f"Found {len(json_files)} metric part files in {input_dir}. Loading data...")
+
+    for file_path in json_files:
         try:
-            data = json.load(f)
+            with open(file_path, "r") as f:
+                part_data = json.load(f)
+                if not isinstance(part_data, list):
+                    print(f"Warning: File {file_path} does not contain a JSON list. Skipping.")
+                    continue
+                all_data_records.extend(part_data)
         except json.JSONDecodeError as e:
-            raise ValueError(f"Error: Failed to decode JSON from {file_path}. Details: {e}")
+            print(f"Warning: Failed to decode JSON from {file_path}. Details: {e}. Skipping.")
+        except Exception as e:
+            print(f"Warning: An unexpected error occurred while reading {file_path}. Details: {e}. Skipping.")
 
-    if not isinstance(data, list) or not data:
-        raise ValueError("Error: JSON data must be a non-empty list of metric objects.")
+    if not all_data_records:
+        raise ValueError(f"Error: No valid metric records found in any JSON part files in {input_dir}.")
 
     metrics: Dict[str, List[Any]] = {
         "cpu_usage_percent": [],
@@ -132,7 +164,7 @@ def load_and_prepare_data(file_path: Path) -> Dict[str, List[Any]]:
         "timestamps": [],
     }
 
-    for record in data:
+    for record in all_data_records:
         try:
             metrics["cpu_usage_percent"].append(record["cpu_usage_percent"])
             metrics["gpu_usage_percent"].append(record["gpu_usage_percent"])
@@ -142,13 +174,13 @@ def load_and_prepare_data(file_path: Path) -> Dict[str, List[Any]]:
             if mem["total"] > 0:
                 metrics["memory_usage_percent"].append((mem["used"] / mem["total"]) * 100)
             else:
-                metrics["memory_usage_percent"].append(0)
+                metrics["memory_usage_percent"].append(0) # Or NaN, depending on desired behavior
             
             metrics["swap_used_gb"].append(mem["swap_used"])
             if mem["swap_total"] > 0:
                 metrics["swap_usage_percent"].append((mem["swap_used"] / mem["swap_total"]) * 100)
             else:
-                 metrics["swap_usage_percent"].append(0)
+                 metrics["swap_usage_percent"].append(0) # Or NaN
 
             power = record["power_watts"]
             metrics["cpu_power_watts"].append(power["cpu"])
@@ -156,7 +188,17 @@ def load_and_prepare_data(file_path: Path) -> Dict[str, List[Any]]:
 
             metrics["timestamps"].append(record["sample_time"])
         except KeyError as e:
-            raise ValueError(f"Error: A record in the JSON is missing the key: {e}")
+            print(f"Warning: A record is missing key '{e}'. Skipping this record.")
+            # Depending on strictness, you might want to raise ValueError here.
+            # For now, we'll just skip records with missing keys.
+            continue
+        except TypeError as e:
+            print(f"Warning: Data type error in a record: {e}. Skipping this record.")
+            continue
+
+
+    if not metrics["timestamps"]:
+        raise ValueError("Error: No valid metric records found after parsing all files.")
 
     return metrics
 
@@ -209,15 +251,15 @@ def generate_report(
     """
     sample_count = len(all_metrics_data["timestamps"])
     
-    # Assuming timestamps are sorted, which they should be from a log
-    try:
-        from dateutil import parser
-        start_time = parser.parse(all_metrics_data["timestamps"][0])
-        end_time = parser.parse(all_metrics_data["timestamps"][-1])
-        duration_seconds = (end_time - start_time).total_seconds()
-    except (ImportError, ValueError):
-        # Fallback if dateutil is not installed or parsing fails
-        duration_seconds = sample_count - 1 if sample_count > 1 else 0
+    duration_str = "N/A (dateutil not installed or timestamps not parsed)"
+    if HAS_DATEUTIL and sample_count > 1:
+        try:
+            start_time = dateparser.parse(all_metrics_data["timestamps"][0])
+            end_time = dateparser.parse(all_metrics_data["timestamps"][-1])
+            duration_seconds = (end_time - start_time).total_seconds()
+            duration_str = f"{duration_seconds:.2f} seconds"
+        except Exception as e:
+            print(f"Warning: Could not parse timestamps for duration calculation: {e}")
 
 
     report_lines = [
@@ -225,7 +267,7 @@ def generate_report(
         " Mactop Metrics Analysis Report",
         "========================================",
         f"Total Samples: {sample_count}",
-        f"Total Duration: {duration_seconds:.2f} seconds\n",
+        f"Total Duration: {duration_str}\n",
     ]
 
     all_stats = {}
@@ -296,9 +338,9 @@ def main() -> None:
         # Create output directory if it doesn't exist
         args.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # 1. Load and prepare data
-        print(f"Loading data from {args.file_path}...")
-        metrics_data = load_and_prepare_data(args.file_path)
+        # 1. Load and prepare data from the directory
+        print(f"Loading data from directory {args.input_dir}...")
+        metrics_data = load_and_prepare_data(args.input_dir)
 
         # 2. Generate report
         print("Generating analysis report...")
