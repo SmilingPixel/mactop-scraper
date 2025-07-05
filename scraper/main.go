@@ -23,11 +23,16 @@ func runScrapeTask(ctx context.Context, totalDuration, interval time.Duration, f
 	taskCtx, cancel := context.WithTimeout(ctx, totalDuration)
 	defer cancel()
 
+	// Calculate how many records we will log based on the total duration and interval.
+	// So we can preallocate the buffer.
+	totalRecords := int((totalDuration + interval - 1) / interval) // Round up to ensure we cover the entire duration
+	bufferSize := (totalRecords + maxRecordsPerFile - 1) / maxRecordsPerFile // Round up to the nearest maxRecordsPerFile
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	var (
-		currentPartMetrics []*MactopMetrics // Buffer for metrics in the current part file
+		currentPartMetrics = make([]*MactopMetrics, 0, bufferSize) // Buffer for metrics in the current part file
 		fileIndex          int              // Index for the current part file
 		recordCount        int              // Count of records in the current buffer
 	)
