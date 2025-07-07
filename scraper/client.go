@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app/client"
 	"github.com/cloudwego/hertz/pkg/protocol"
@@ -148,6 +149,8 @@ func parseMactopMetrics(data []byte) (*MactopMetrics, error) {
 			}
 		}
 	}
+
+	metrics.SampleTime = time.Now()
 
 	return metrics, nil
 }
