@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -123,12 +124,18 @@ func runScrapeTask(ctx context.Context, totalDuration, interval time.Duration, f
 }
 
 func main() {
+	// Record the start time
+	t := time.Now()
+
 	// command-line flags
 	var (
 		outputDir          string
 		scrapeIntervalSec  int
 		totalDurationSec   int
 		mactopBaseURL      string
+
+		logLevel string
+		logOutputDir string
 	)
 
 	// Custom usage message for the help flag
@@ -145,13 +152,52 @@ func main() {
 	flag.IntVar(&scrapeIntervalSec, "interval", 2, "Scrape interval in seconds. 2 seconds by default.")
 	flag.IntVar(&totalDurationSec, "duration", 60, "Total duration to run the scrape task in seconds. 60 seconds by default.")
 	flag.StringVar(&mactopBaseURL, "mactop-url", "http://localhost:2211", "Base URL for the Mactop metrics API. Default is 'http://localhost:2211'.")
+	flag.StringVar(&logLevel, "log-level", "warning", "Set the logging level (trace, debug, info, warning, error, fatal, panic). Default is 'warning'.")
+	flag.StringVar(&logOutputDir, "log-output-dir", "", "Directory to write logs to. If empty, logs will be written to stderr.")
 	flag.Parse()
+
+	// Override log level if specified in the command line arguments
+	logLevels := map[string]zerolog.Level{
+		"":      zerolog.InfoLevel, // Default log level
+		"trace": zerolog.TraceLevel,
+		"debug": zerolog.DebugLevel,
+		"info":  zerolog.InfoLevel,
+		"warn":  zerolog.WarnLevel,
+		"error": zerolog.ErrorLevel,
+		"fatal": zerolog.FatalLevel,
+		"panic": zerolog.PanicLevel,
+	}
+
+	if level, exists := logLevels[logLevel]; exists {
+		zerolog.SetGlobalLevel(level)
+	} else {
+		log.Error().Msgf("[main] Unsupported log level: %s", logLevel)
+		return
+	}
+
+	// used to format the time in the output file name
+	// We do not use RFC3339 format because it contains colons, which are not allowed in Windows file names.
+	outputFileTimeFormat := "20060102150405"
+
+	// Log to file if specified
+	if logOutputDir != "" {
+		logFilePath := fmt.Sprintf("%s/log_%s.log", logOutputDir, t.Format(outputFileTimeFormat))
+		fileWriter, err := os.Create(logFilePath)
+		if err != nil {
+			log.Err(err).Msgf("[main] Failed to create log file: %s", logFilePath)
+			return
+		}
+		log.Info().Msgf("[main] Log to file is enabled, I will write logs to %s", logFilePath)
+		log.Logger = log.Output(fileWriter)
+	}
 
 	log.Info().
 		Str("outputDir", outputDir).
 		Int("scrapeInterval", scrapeIntervalSec).
 		Int("totalDuration", totalDurationSec).
 		Str("mactopBaseURL", mactopBaseURL).
+		Str("logLevel", logLevel).
+		Str("logOutputFile", logOutputDir).
 		Msg("Configuration loaded.")
 
 	// Create a fetcher instance.
@@ -166,7 +212,7 @@ func main() {
 
 	// Create a subdirectory named by running datetime
 	// Format:YYYYMMDD_HHMMSS (e.g., 20250622_090908)
-	timestampDir := time.Now().Format("20060102_150405")
+	timestampDir := t.Format("20060102_150405")
 	fullOutputDir := filepath.Join(outputDir, timestampDir)
 
 	// Create the directory if it doesn't exist
