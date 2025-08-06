@@ -36,15 +36,15 @@ Typical use cases include:
 
 ## Scraper
 
-Scraper is a command-line tool that collects metrics from mactop's HTTP endpoint and stores them in JSON files. 
+Scraper is a command-line tool that collects metrics from a mactop HTTP endpoint and saves them as JSON files.
 
-Assuming you have downloaded the released binary as `scraper`, you can run it with the following command:
+If you’ve downloaded the released binary and named it scraper, you can run it using the following command:
 
 ```bash
 ./scraper --duration 60 --interval 5 --output-dir "./metrics_data" --mactop-url "http://192.168.1.5:2211"
 ```
 
-You can find more details about the command-line options by running:
+To see all available command-line options, run:
 
 ```bash
 ./scraper --help
@@ -52,21 +52,26 @@ You can find more details about the command-line options by running:
 
 ## Analyzer
 
-Analyzer is a Python script that processes the collected JSON files and generates summaries of the metrics.
+Analyzer is a Python script that processes the collected JSON files and generates metric summaries.
 
-Before running the analyzer, make sure you have installed the required Python packages. You can do this using `uv`:
+Before running the analyzer, make sure the required Python packages are installed. We recommend using `uv`:
 
 ```bash
 uv sync
 ```
 
-Then, you can run the analyzer with the following command:
+Then, run the analyzer with:
 
 ```bash
 uv run analyzer.py --input-dir "./metrics_data"
 ```
 
-Then, you can get a report of the collected metrics. You can also get graphs of the metrics by adding `--plot` option.
+This will generate a summary report of the collected metrics.
+To include visualizations, add the `--plot` option:
+
+```bash
+uv run analyzer.py --input-dir "./metrics_data" --plot
+```
 
 
 # License
