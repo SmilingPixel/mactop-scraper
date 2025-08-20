@@ -152,7 +152,7 @@ func main() {
 	flag.IntVar(&scrapeIntervalSec, "interval", 2, "Scrape interval in seconds. 2 seconds by default.")
 	flag.IntVar(&totalDurationSec, "duration", 60, "Total duration to run the scrape task in seconds. 60 seconds by default.")
 	flag.StringVar(&mactopBaseURL, "mactop-url", "http://localhost:2211", "Base URL for the Mactop metrics API. Default is 'http://localhost:2211'.")
-	flag.StringVar(&logLevel, "log-level", "warning", "Set the logging level (trace, debug, info, warning, error, fatal, panic). Default is 'warning'.")
+	flag.StringVar(&logLevel, "log-level", "warn", "Set the logging level (trace, debug, info, warning, error, fatal, panic). Default is 'warning'.")
 	flag.StringVar(&logOutputDir, "log-output-dir", "", "Directory to write logs to. If empty, logs will be written to stderr.")
 	flag.Parse()
 
