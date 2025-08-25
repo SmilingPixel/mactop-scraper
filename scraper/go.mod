@@ -3,15 +3,15 @@ module scraper
 go 1.24.3
 
 require (
-	github.com/cloudwego/hertz v0.10.0
-	github.com/prometheus/common v0.64.0
+	github.com/cloudwego/hertz v0.10.2
+	github.com/prometheus/common v0.65.0
 	github.com/rs/zerolog v1.34.0
 )
 
 require (
 	github.com/bytedance/gopkg v0.1.2 // indirect
-	github.com/bytedance/sonic v1.13.3 // indirect
-	github.com/bytedance/sonic/loader v0.2.4 // indirect
+	github.com/bytedance/sonic v1.14.0 // indirect
+	github.com/bytedance/sonic/loader v0.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.5 // indirect
 	github.com/cloudwego/gopkg v0.1.5 // indirect
 	github.com/cloudwego/netpoll v0.7.1 // indirect
