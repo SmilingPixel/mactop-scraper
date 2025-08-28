@@ -36,6 +36,8 @@ from typing import Any, Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import seaborn as sns
 from matplotlib.ticker import MaxNLocator
 import re
 
@@ -287,45 +289,114 @@ def generate_report(
     return "\n".join(report_lines), all_stats
 
 
-def create_and_save_plots(
+def create_and_save_plots_seaborn_optimized(
     all_metrics_data: Dict[str, List[Any]],
     output_dir: Path,
 ) -> None:
     """
-    Creates and saves line charts for each metric.
+    Creates and saves enhanced, readable line charts for each metric using seaborn.
+
+    For large datasets, markers are decimated to avoid clutter. Each plot includes
+    the original data line and a smoothed trendline.
 
     Args:
         all_metrics_data (Dict[str, List[Any]]): The prepared metrics data.
         output_dir (Path): The directory where plots will be saved.
     """
     print(f"Generating and saving plots to {output_dir}...")
-    sample_indices = range(len(all_metrics_data["timestamps"]))
+    
+    # Set the aesthetic style of the plots
+    sns.set_theme(style="whitegrid", palette="muted")
 
     for friendly_name, key in METRICS_TO_ANALYZE:
-        metric_data = all_metrics_data.get(key, [])
-        if not metric_data:
-            print(f"Skipping plot for '{friendly_name}' due to no data.")
+        metric_data = all_metrics_data.get(key)
+        
+        if not metric_data or len(metric_data) < 2:
+            num_points = len(metric_data) if metric_data else 0
+            print(f"Skipping plot for '{friendly_name}' due to insufficient data (found {num_points} points).")
             continue
 
-        fig, ax = plt.subplots(figsize=(12, 6))
-        ax.plot(sample_indices, metric_data, marker=".", linestyle="-", markersize=4)
+        num_points = len(metric_data)
+        print(f"  - Processing '{friendly_name}' with {num_points} data points...")
 
-        ax.set_title(f"{friendly_name} Over Time", fontsize=16)
-        ax.set_xlabel("Sample Index", fontsize=12)
-        ax.set_ylabel(friendly_name, fontsize=12)
-        ax.grid(True, which="both", linestyle="--", linewidth=0.5)
+        # Create a pandas DataFrame
+        df = pd.DataFrame({
+            "Sample Index": range(num_points),
+            friendly_name: metric_data
+        })
+
+        # --- Smartly determine marker settings to avoid clutter ---
+        if num_points <= 100:
+            # For small datasets, show all markers
+            marker_style = "o"
+            mark_every = 1
+            marker_size = 5
+        else:
+            # For large datasets, decimate markers
+            marker_style = "o"
+            # Aim for around 50-100 markers spread across the plot
+            mark_every = max(1, num_points // 75) 
+            marker_size = 6 # Make markers slightly larger to be visible
+
+        # Create the plot
+        fig, ax = plt.subplots(figsize=(14, 7))
+
+        # 1. Plot the original data with decimated markers
+        sns.lineplot(
+            data=df,
+            x="Sample Index",
+            y=friendly_name,
+            ax=ax,
+            marker=marker_style,
+            markevery=mark_every,
+            markersize=marker_size,
+            linestyle="-",
+            label="Original Data",
+            color=sns.color_palette("muted")[0]
+        )
+
+        # 2. Add a smoothed trendline using LOWESS regression
+        try:
+            sns.regplot(
+                data=df,
+                x="Sample Index",
+                y=friendly_name,
+                ax=ax,
+                lowess=True,
+                scatter=False,
+                label="Smoothed Trend",
+                color=sns.color_palette("muted")[1],
+                line_kws={'linewidth': 2.5},
+                ci=None # Disable confidence interval for a cleaner look
+            )
+        except Exception as e:
+            print(f"  - Could not generate smoothed trend for '{friendly_name}': {e}")
+
+        # --- Customize the plot ---
+        ax.set_title(f"{friendly_name} Over Time", fontsize=18, fontweight='bold', pad=20)
+        ax.set_xlabel("Sample Index", fontsize=14)
+        ax.set_ylabel(friendly_name, fontsize=14)
         
-        # Ensure x-axis has integer ticks
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        plt.xticks(rotation=0)
+        
+        ax.legend(title="Legend", frameon=True, fontsize=12)
+        ax.grid(True, which="both", linestyle="--", linewidth=0.5)
 
         fig.tight_layout()
 
-        # Sanitize filename
+        # --- Sanitize filename and save the plot ---
         filename_key = key.replace(" ", "_").replace("(", "").replace(")", "").replace("%", "percent")
-        plot_path = output_dir / f"{filename_key}_chart.png"
-        fig.savefig(plot_path, dpi=150)
-        plt.close(fig)
-        print(f"  - Saved {plot_path.name}")
+        plot_path = output_dir / f"{filename_key}_chart_seaborn.png"
+        
+        try:
+            fig.savefig(plot_path, dpi=150, bbox_inches='tight')
+            print(f"  - Saved {plot_path.name}")
+        except Exception as e:
+            print(f"  - Failed to save plot for '{friendly_name}': {e}")
+        finally:
+            plt.close(fig)
+
 
 
 def main() -> None:
@@ -357,7 +428,7 @@ def main() -> None:
 
         # 3. Optionally create and save plots
         if args.plot:
-            create_and_save_plots(metrics_data, args.output_dir)
+            create_and_save_plots_seaborn_optimized(metrics_data, args.output_dir)
 
         print("Analysis complete.")
 
