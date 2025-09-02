@@ -325,32 +325,15 @@ def create_and_save_plots_seaborn_optimized(
             friendly_name: metric_data
         })
 
-        # --- Smartly determine marker settings to avoid clutter ---
-        if num_points <= 100:
-            # For small datasets, show all markers
-            marker_style = "o"
-            mark_every = 1
-            marker_size = 5
-        else:
-            # For large datasets, decimate markers
-            marker_style = "o"
-            # Aim for around 50-100 markers spread across the plot
-            mark_every = max(1, num_points // 75) 
-            marker_size = 6 # Make markers slightly larger to be visible
-
         # Create the plot
         fig, ax = plt.subplots(figsize=(14, 7))
 
-        # 1. Plot the original data with decimated markers
+        # 1. Plot the original data with no markers
         sns.lineplot(
             data=df,
             x="Sample Index",
             y=friendly_name,
             ax=ax,
-            marker=marker_style,
-            markevery=mark_every,
-            markersize=marker_size,
-            linestyle="-",
             label="Original Data",
             color=sns.color_palette("muted")[0]
         )
