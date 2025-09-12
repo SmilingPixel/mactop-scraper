@@ -381,6 +381,112 @@ def create_and_save_plots_seaborn_optimized(
             plt.close(fig)
 
 
+def create_and_save_plots_seaborn_optimized_combined(
+    all_metrics_data: Dict[str, List[Any]],
+    output_dir: Path,
+) -> None:
+    """
+    Creates a single, combined image file with line charts for all key metrics.
+
+    The grid layout and figure size are determined adaptively based on the number
+    of metrics to plot. Each subplot shows the original data and a smoothed trendline.
+
+    Args:
+        all_metrics_data (Dict[str, List[Any]]): The prepared metrics data.
+        output_dir (Path): The directory where the combined plot will be saved.
+    """
+    # Filter for metrics that have sufficient data to be plotted
+    metrics_to_plot = []
+    for friendly_name, key in METRICS_TO_ANALYZE:
+        if all_metrics_data.get(key) and len(all_metrics_data[key]) >= 2:
+            metrics_to_plot.append((friendly_name, key))
+        else:
+            num_points = len(all_metrics_data.get(key, []))
+            print(f"Skipping plot for '{friendly_name}' due to insufficient data (found {num_points} points).")
+
+    num_plots = len(metrics_to_plot)
+    if num_plots == 0:
+        print("No metrics with sufficient data to plot. Aborting plot generation.")
+        return
+
+    print(f"Generating a combined plot for {num_plots} metrics...")
+
+    # --- 1. Determine adaptive grid layout ---
+    # We aim for a 2-column layout, which is common and readable in reports.
+    ncols = 2
+    nrows = math.ceil(num_plots / ncols)
+    print(f"  - Using a {nrows}x{ncols} grid layout.")
+
+    # --- 2. Create the figure and subplots array ---
+    # Adapt the figure size based on the grid. Base size per subplot is ~10x5 inches.
+    fig_width = ncols * 10
+    fig_height = nrows * 5
+    fig, axes = plt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        figsize=(fig_width, fig_height),
+        squeeze=False  # Ensures `axes` is always a 2D array
+    )
+
+    # Flatten the 2D array of axes for easy iteration
+    axes_flat = axes.flatten()
+
+    # Set the aesthetic style for all subplots
+    sns.set_theme(style="whitegrid", palette="muted")
+
+    # --- 3. Iterate through metrics and plot on each subplot ---
+    for i, (friendly_name, key) in enumerate(metrics_to_plot):
+        ax = axes_flat[i]
+        metric_data = all_metrics_data[key]
+        num_points = len(metric_data)
+
+        # Create a pandas DataFrame for the current metric
+        df = pd.DataFrame({"Sample Index": range(num_points), "Value": metric_data})
+
+        # Plot original data line
+        sns.lineplot(
+            data=df, x="Sample Index", y="Value", ax=ax,
+            label="Original Data", color=sns.color_palette("muted")[0]
+        )
+
+        # Plot smoothed trendline
+        try:
+            sns.regplot(
+                data=df, x="Sample Index", y="Value", ax=ax,
+                lowess=True, scatter=False, label="Smoothed Trend",
+                color=sns.color_palette("muted")[1], line_kws={'linewidth': 2.5}, ci=None
+            )
+        except Exception as e:
+            print(f"  - Could not generate smoothed trend for '{friendly_name}': {e}")
+
+        # Customize the subplot
+        ax.set_title(friendly_name, fontsize=18, fontweight='bold', pad=15)
+        ax.set_xlabel("Sample Index", fontsize=14)
+        ax.set_ylabel(friendly_name, fontsize=14)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.legend(frameon=True, fontsize=12)
+        ax.grid(True, which="both", linestyle="--", linewidth=0.5)
+
+    # --- 4. Turn off any unused subplots ---
+    for i in range(num_plots, len(axes_flat)):
+        axes_flat[i].axis('off')
+
+    # --- 5. Finalize and save the entire figure ---
+    fig.suptitle("Mactop Metrics Analysis", fontsize=28, fontweight='bold')
+    
+    # Adjust layout to prevent titles/labels overlapping and make room for suptitle
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+
+    plot_path = output_dir / "combined_metrics_chart.png"
+    try:
+        fig.savefig(plot_path, dpi=150)
+        print(f"\nSuccessfully saved combined plot to: {plot_path}")
+    except Exception as e:
+        print(f"\nFailed to save combined plot: {e}")
+    finally:
+        plt.close(fig)
+
+
 
 def main() -> None:
     """
