@@ -517,7 +517,7 @@ def main() -> None:
 
         # 3. Optionally create and save plots
         if args.plot:
-            create_and_save_plots_seaborn_optimized(metrics_data, args.output_dir)
+            create_and_save_plots_seaborn_optimized_combined(metrics_data, args.output_dir)
 
         print("Analysis complete.")
 
