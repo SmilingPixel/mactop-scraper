@@ -63,14 +63,14 @@ uv sync
 Then, run the analyzer with:
 
 ```bash
-uv run analyzer.py --input-dir "./metrics_data"
+uv run main.py --input-dir "./metrics_data"
 ```
 
 This will generate a summary report of the collected metrics.
 To include visualizations, add the `--plot` option:
 
 ```bash
-uv run analyzer.py --input-dir "./metrics_data" --plot
+uv run main.py --input-dir "./metrics_data" --plot
 ```
 
 
