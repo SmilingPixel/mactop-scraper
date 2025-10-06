@@ -431,42 +431,40 @@ def create_and_save_plots_seaborn_optimized_combined(
     # Flatten the 2D array of axes for easy iteration
     axes_flat = axes.flatten()
 
-    # Set the aesthetic style for all subplots
-    sns.set_theme(style="whitegrid", palette="muted")
+    # Set the aesthetic style for all subplots using a local context
+    with sns.axes_style("whitegrid"):
+        # --- 3. Iterate through metrics and plot on each subplot ---
+        for i, (friendly_name, key) in enumerate(metrics_to_plot):
+            ax = axes_flat[i]
+            metric_data = all_metrics_data[key]
+            num_points = len(metric_data)
 
-    # --- 3. Iterate through metrics and plot on each subplot ---
-    for i, (friendly_name, key) in enumerate(metrics_to_plot):
-        ax = axes_flat[i]
-        metric_data = all_metrics_data[key]
-        num_points = len(metric_data)
+            # Create a pandas DataFrame for the current metric
+            df = pd.DataFrame({"Sample Index": range(num_points), "Value": metric_data})
 
-        # Create a pandas DataFrame for the current metric
-        df = pd.DataFrame({"Sample Index": range(num_points), "Value": metric_data})
-
-        # Plot original data line
-        sns.lineplot(
-            data=df, x="Sample Index", y="Value", ax=ax,
-            label="Original Data", color=sns.color_palette("muted")[0]
-        )
-
-        # Plot smoothed trendline
-        try:
-            sns.regplot(
+            # Plot original data line
+            sns.lineplot(
                 data=df, x="Sample Index", y="Value", ax=ax,
-                lowess=True, scatter=False, label="Smoothed Trend",
-                color=sns.color_palette("muted")[1], line_kws={'linewidth': 2.5}, ci=None
+                label="Original Data", color=sns.color_palette("muted")[0]
             )
-        except Exception as e:
-            print(f"  - Could not generate smoothed trend for '{friendly_name}': {e}")
 
-        # Customize the subplot
-        ax.set_title(friendly_name, fontsize=18, fontweight='bold', pad=15)
-        ax.set_xlabel("Sample Index", fontsize=14)
-        ax.set_ylabel(friendly_name, fontsize=14)
-        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        ax.legend(frameon=True, fontsize=12)
-        ax.grid(True, which="both", linestyle="--", linewidth=0.5)
+            # Plot smoothed trendline
+            try:
+                sns.regplot(
+                    data=df, x="Sample Index", y="Value", ax=ax,
+                    lowess=True, scatter=False, label="Smoothed Trend",
+                    color=sns.color_palette("muted")[1], line_kws={'linewidth': 2.5}, ci=None
+                )
+            except Exception as e:
+                print(f"  - Could not generate smoothed trend for '{friendly_name}': {e}")
 
+            # Customize the subplot
+            ax.set_title(friendly_name, fontsize=18, fontweight='bold', pad=15)
+            ax.set_xlabel("Sample Index", fontsize=14)
+            ax.set_ylabel(friendly_name, fontsize=14)
+            ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+            ax.legend(frameon=True, fontsize=12)
+            ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     # --- 4. Turn off any unused subplots ---
     for i in range(num_plots, len(axes_flat)):
         axes_flat[i].axis('off')
