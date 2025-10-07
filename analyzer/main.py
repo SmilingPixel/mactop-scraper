@@ -34,12 +34,14 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib.ticker import MaxNLocator
 import re
+import math
 
 # Try to import dateutil.parser for robust timestamp parsing
 try:
@@ -289,200 +291,136 @@ def generate_report(
     return "\n".join(report_lines), all_stats
 
 
-def create_and_save_plots_seaborn_optimized(
+def _plot_metric(ax, df, friendly_name, value_col=None):
+    """
+    Plots the original data and a smoothed trendline for a metric on the given axis.
+    Args:
+        ax: matplotlib axis to plot on
+        df: pandas DataFrame containing the data
+        friendly_name: str, metric name for labels
+        value_col: str, column name for y values (optional, defaults to friendly_name)
+    """
+    y_col = value_col if value_col is not None else friendly_name
+    sns.lineplot(
+        data=df,
+        x="Sample Index",
+        y=y_col,
+        ax=ax,
+        label="Original Data",
+        color=sns.color_palette("muted")[0]
+    )
+    try:
+        sns.regplot(
+            data=df,
+            x="Sample Index",
+            y=y_col,
+            ax=ax,
+            lowess=True,
+            scatter=False,
+            label="Smoothed Trend",
+            color=sns.color_palette("muted")[1],
+            line_kws={'linewidth': 2.5},
+            ci=None
+        )
+    except Exception as e:
+        print(f"  - Could not generate smoothed trend for '{friendly_name}': {e}")
+    ax.set_xlabel("Sample Index", fontsize=14)
+    ax.set_ylabel(friendly_name, fontsize=14)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.grid(True, which="both", linestyle="--", linewidth=0.5)
+
+
+def create_and_save_plots_seaborn(
     all_metrics_data: Dict[str, List[Any]],
     output_dir: Path,
+    combine: bool = False,
 ) -> None:
     """
-    Creates and saves enhanced, readable line charts for each metric using seaborn.
-
-    For large datasets, markers are decimated to avoid clutter. Each plot includes
-    the original data line and a smoothed trendline.
+    Creates and saves line charts for each metric using seaborn, or a single combined image.
 
     Args:
         all_metrics_data (Dict[str, List[Any]]): The prepared metrics data.
         output_dir (Path): The directory where plots will be saved.
+        combine (bool): If True, save all plots in one combined image; else, save individual images.
     """
-    print(f"Generating and saving plots to {output_dir}...")
-    
-    # Set the aesthetic style of the plots
-    sns.set_theme(style="whitegrid", palette="muted")
+    if combine:
+        # Combined plot logic
+        metrics_to_plot = []
+        for friendly_name, key in METRICS_TO_ANALYZE:
+            if all_metrics_data.get(key) and len(all_metrics_data[key]) >= 2:
+                metrics_to_plot.append((friendly_name, key))
+            else:
+                num_points = len(all_metrics_data.get(key, []))
+                print(f"Skipping plot for '{friendly_name}' due to insufficient data (found {num_points} points).")
 
-    for friendly_name, key in METRICS_TO_ANALYZE:
-        metric_data = all_metrics_data.get(key)
-        
-        if not metric_data or len(metric_data) < 2:
-            num_points = len(metric_data) if metric_data else 0
-            print(f"Skipping plot for '{friendly_name}' due to insufficient data (found {num_points} points).")
-            continue
+        num_plots = len(metrics_to_plot)
+        if num_plots == 0:
+            print("No metrics with sufficient data to plot. Aborting plot generation.")
+            return
 
-        num_points = len(metric_data)
-        print(f"  - Processing '{friendly_name}' with {num_points} data points...")
-
-        # Create a pandas DataFrame
-        df = pd.DataFrame({
-            "Sample Index": range(num_points),
-            friendly_name: metric_data
-        })
-
-        # Create the plot
-        fig, ax = plt.subplots(figsize=(14, 7))
-
-        # 1. Plot the original data with no markers
-        sns.lineplot(
-            data=df,
-            x="Sample Index",
-            y=friendly_name,
-            ax=ax,
-            label="Original Data",
-            color=sns.color_palette("muted")[0]
+        print(f"Generating a combined plot for {num_plots} metrics...")
+        ncols = 2
+        nrows = math.ceil(num_plots / ncols)
+        print(f"  - Using a {nrows}x{ncols} grid layout.")
+        fig_width = ncols * 10
+        fig_height = nrows * 5
+        fig, axes = plt.subplots(
+            nrows=nrows,
+            ncols=ncols,
+            figsize=(fig_width, fig_height),
+            squeeze=False
         )
-
-        # 2. Add a smoothed trendline using LOWESS regression
+        axes_flat = axes.flatten()
+        with sns.axes_style("whitegrid"):
+            for i, (friendly_name, key) in enumerate(metrics_to_plot):
+                ax = axes_flat[i]
+                metric_data = all_metrics_data[key]
+                num_points = len(metric_data)
+                df = pd.DataFrame({"Sample Index": range(num_points), "Value": metric_data})
+                _plot_metric(ax, df, friendly_name, value_col="Value")
+                ax.set_title(friendly_name, fontsize=18, fontweight='bold', pad=15)
+                ax.legend(frameon=True, fontsize=12)
+        for i in range(num_plots, len(axes_flat)):
+            axes_flat[i].axis('off')
+        fig.suptitle("Mactop Metrics Analysis", fontsize=28, fontweight='bold')
+        fig.tight_layout(rect=(0, 0, 1, 0.96))
+        plot_path = output_dir / "combined_metrics_chart.png"
         try:
-            sns.regplot(
-                data=df,
-                x="Sample Index",
-                y=friendly_name,
-                ax=ax,
-                lowess=True,
-                scatter=False,
-                label="Smoothed Trend",
-                color=sns.color_palette("muted")[1],
-                line_kws={'linewidth': 2.5},
-                ci=None # Disable confidence interval for a cleaner look
-            )
+            fig.savefig(plot_path, dpi=150)
+            print(f"\nSuccessfully saved combined plot to: {plot_path}")
         except Exception as e:
-            print(f"  - Could not generate smoothed trend for '{friendly_name}': {e}")
-
-        # --- Customize the plot ---
-        ax.set_title(f"{friendly_name} Over Time", fontsize=18, fontweight='bold', pad=20)
-        ax.set_xlabel("Sample Index", fontsize=14)
-        ax.set_ylabel(friendly_name, fontsize=14)
-        
-        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        plt.xticks(rotation=0)
-        
-        ax.legend(title="Legend", frameon=True, fontsize=12)
-        ax.grid(True, which="both", linestyle="--", linewidth=0.5)
-
-        fig.tight_layout()
-
-        # --- Sanitize filename and save the plot ---
-        filename_key = key.replace(" ", "_").replace("(", "").replace(")", "").replace("%", "percent")
-        plot_path = output_dir / f"{filename_key}_chart_seaborn.png"
-        
-        try:
-            fig.savefig(plot_path, dpi=150, bbox_inches='tight')
-            print(f"  - Saved {plot_path.name}")
-        except Exception as e:
-            print(f"  - Failed to save plot for '{friendly_name}': {e}")
+            print(f"\nFailed to save combined plot: {e}")
         finally:
             plt.close(fig)
-
-
-def create_and_save_plots_seaborn_optimized_combined(
-    all_metrics_data: Dict[str, List[Any]],
-    output_dir: Path,
-) -> None:
-    """
-    Creates a single, combined image file with line charts for all key metrics.
-
-    The grid layout and figure size are determined adaptively based on the number
-    of metrics to plot. Each subplot shows the original data and a smoothed trendline.
-
-    Args:
-        all_metrics_data (Dict[str, List[Any]]): The prepared metrics data.
-        output_dir (Path): The directory where the combined plot will be saved.
-    """
-    # Filter for metrics that have sufficient data to be plotted
-    metrics_to_plot = []
-    for friendly_name, key in METRICS_TO_ANALYZE:
-        if all_metrics_data.get(key) and len(all_metrics_data[key]) >= 2:
-            metrics_to_plot.append((friendly_name, key))
-        else:
-            num_points = len(all_metrics_data.get(key, []))
-            print(f"Skipping plot for '{friendly_name}' due to insufficient data (found {num_points} points).")
-
-    num_plots = len(metrics_to_plot)
-    if num_plots == 0:
-        print("No metrics with sufficient data to plot. Aborting plot generation.")
-        return
-
-    print(f"Generating a combined plot for {num_plots} metrics...")
-
-    # --- 1. Determine adaptive grid layout ---
-    # We aim for a 2-column layout, which is common and readable in reports.
-    ncols = 2
-    nrows = math.ceil(num_plots / ncols)
-    print(f"  - Using a {nrows}x{ncols} grid layout.")
-
-    # --- 2. Create the figure and subplots array ---
-    # Adapt the figure size based on the grid. Base size per subplot is ~10x5 inches.
-    fig_width = ncols * 10
-    fig_height = nrows * 5
-    fig, axes = plt.subplots(
-        nrows=nrows,
-        ncols=ncols,
-        figsize=(fig_width, fig_height),
-        squeeze=False  # Ensures `axes` is always a 2D array
-    )
-
-    # Flatten the 2D array of axes for easy iteration
-    axes_flat = axes.flatten()
-
-    # Set the aesthetic style for all subplots using a local context
-    with sns.axes_style("whitegrid"):
-        # --- 3. Iterate through metrics and plot on each subplot ---
-        for i, (friendly_name, key) in enumerate(metrics_to_plot):
-            ax = axes_flat[i]
-            metric_data = all_metrics_data[key]
+    else:
+        # Individual plot logic
+        print(f"Generating and saving plots to {output_dir}...")
+        sns.set_theme(style="whitegrid", palette="muted")
+        for friendly_name, key in METRICS_TO_ANALYZE:
+            metric_data = all_metrics_data.get(key)
+            if not metric_data or len(metric_data) < 2:
+                num_points = len(metric_data) if metric_data else 0
+                print(f"Skipping plot for '{friendly_name}' due to insufficient data (found {num_points} points).")
+                continue
             num_points = len(metric_data)
-
-            # Create a pandas DataFrame for the current metric
-            df = pd.DataFrame({"Sample Index": range(num_points), "Value": metric_data})
-
-            # Plot original data line
-            sns.lineplot(
-                data=df, x="Sample Index", y="Value", ax=ax,
-                label="Original Data", color=sns.color_palette("muted")[0]
-            )
-
-            # Plot smoothed trendline
+            print(f"  - Processing '{friendly_name}' with {num_points} data points...")
+            df = pd.DataFrame({"Sample Index": range(num_points), friendly_name: metric_data})
+            fig, ax = plt.subplots(figsize=(14, 7))
+            _plot_metric(ax, df, friendly_name)
+            ax.set_title(f"{friendly_name} Over Time", fontsize=18, fontweight='bold', pad=20)
+            plt.xticks(rotation=0)
+            ax.legend(title="Legend", frameon=True, fontsize=12)
+            fig.tight_layout()
+            filename_key = key.replace(" ", "_").replace("(", "").replace(")", "").replace("%", "percent")
+            plot_path = output_dir / f"{filename_key}_chart_seaborn.png"
             try:
-                sns.regplot(
-                    data=df, x="Sample Index", y="Value", ax=ax,
-                    lowess=True, scatter=False, label="Smoothed Trend",
-                    color=sns.color_palette("muted")[1], line_kws={'linewidth': 2.5}, ci=None
-                )
+                fig.savefig(plot_path, dpi=150, bbox_inches='tight')
+                print(f"  - Saved {plot_path.name}")
             except Exception as e:
-                print(f"  - Could not generate smoothed trend for '{friendly_name}': {e}")
+                print(f"  - Failed to save plot for '{friendly_name}': {e}")
+            finally:
+                plt.close(fig)
 
-            # Customize the subplot
-            ax.set_title(friendly_name, fontsize=18, fontweight='bold', pad=15)
-            ax.set_xlabel("Sample Index", fontsize=14)
-            ax.set_ylabel(friendly_name, fontsize=14)
-            ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-            ax.legend(frameon=True, fontsize=12)
-            ax.grid(True, which="both", linestyle="--", linewidth=0.5)
-    # --- 4. Turn off any unused subplots ---
-    for i in range(num_plots, len(axes_flat)):
-        axes_flat[i].axis('off')
-
-    # --- 5. Finalize and save the entire figure ---
-    fig.suptitle("Mactop Metrics Analysis", fontsize=28, fontweight='bold')
-    
-    # Adjust layout to prevent titles/labels overlapping and make room for suptitle
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
-
-    plot_path = output_dir / "combined_metrics_chart.png"
-    try:
-        fig.savefig(plot_path, dpi=150)
-        print(f"\nSuccessfully saved combined plot to: {plot_path}")
-    except Exception as e:
-        print(f"\nFailed to save combined plot: {e}")
-    finally:
-        plt.close(fig)
 
 
 
@@ -490,10 +428,41 @@ def main() -> None:
     """
     Main function to run the mactop analysis script.
     """
-    args = parse_arguments()
+    parser = argparse.ArgumentParser(
+        description="Analyze mactop metrics from a directory containing JSON part files.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog="""
+Example usage:
+  python mactop_analyzer.py --input-dir ./metrics_data/20250622_090908 --output-dir ./analysis_results
+  python mactop_analyzer.py --input-dir ./metrics_data/20250622_090908 --output-dir ./analysis_results --plot
+  python mactop_analyzer.py --input-dir ./metrics_data/20250622_090908 --output-dir ./analysis_results --plot --combine
+""",
+    )
+    parser.add_argument(
+        "--input-dir",
+        type=Path,
+        required=True,
+        help="Path to the input directory containing mactop metrics part files (e.g., mactop_metrics_part_0000.json).",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("./analysis_results"),
+        help="Directory to save the analysis report and optional plots.",
+    )
+    parser.add_argument(
+        "--plot",
+        action="store_true",
+        help="If set, generate and save line charts for each metric.",
+    )
+    parser.add_argument(
+        "--combine",
+        action="store_true",
+        help="If set with --plot, combine all diagrams into one image file.",
+    )
+    args = parser.parse_args()
 
     try:
-        # Create output directory if it doesn't exist
         args.output_dir.mkdir(parents=True, exist_ok=True)
 
         # 1. Load and prepare data from the directory
@@ -509,14 +478,11 @@ def main() -> None:
         with open(report_path, "w") as f:
             f.write(report_str)
         print(f"Analysis report saved to {report_path}")
-
-        # Print report to console
         print("\n" + report_str)
 
         # 3. Optionally create and save plots
         if args.plot:
-            create_and_save_plots_seaborn_optimized_combined(metrics_data, args.output_dir)
-
+            create_and_save_plots_seaborn(metrics_data, args.output_dir, combine=args.combine)
         print("Analysis complete.")
 
     except (FileNotFoundError, ValueError, KeyError) as e:
