@@ -10,6 +10,12 @@ Typical use cases include:
 > Note: This project assumes you have `mactop` installed and running with its server functionality enabled.
 
 
+# Real-World Analysis & Motivation
+
+For a detailed walkthrough of the motivation behind this project and an analysis of an M4 MacBook Air's performance under typical workloads, check out my blog post on Zhihu:
+- **[mactop-scraper: 一个采样统计 MacBook 系统指标的小工具](https://zhuanlan.zhihu.com/p/1938272146964066788)**
+
+
 # Features
 
 - Real-time Metric Collection: Periodically fetches performance data from mactop.
