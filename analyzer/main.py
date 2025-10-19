@@ -46,10 +46,13 @@ import math
 # Try to import dateutil.parser for robust timestamp parsing
 try:
     from dateutil import parser as dateparser
+
     HAS_DATEUTIL = True
 except ImportError:
     HAS_DATEUTIL = False
-    print("Warning: 'python-dateutil' not found. Timestamps will not be parsed for duration calculation. Install with 'pip install python-dateutil' for full functionality.")
+    print(
+        "Warning: 'python-dateutil' not found. Timestamps will not be parsed for duration calculation. Install with 'pip install python-dateutil' for full functionality."
+    )
 
 
 METRICS_TO_ANALYZE = [
@@ -106,7 +109,10 @@ Example usage:
 
 def natural_sort_key(s):
     """Key for natural sorting of strings containing numbers."""
-    return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s)]
+    return [
+        int(text) if text.isdigit() else text.lower()
+        for text in re.split("([0-9]+)", s)
+    ]
 
 
 def load_and_prepare_data(input_dir: Path) -> Dict[str, List[Any]]:
@@ -131,12 +137,17 @@ def load_and_prepare_data(input_dir: Path) -> Dict[str, List[Any]]:
         raise FileNotFoundError(f"Error: Input directory not found at {input_dir}")
 
     all_data_records: List[Dict[str, Any]] = []
-    
+
     # Find all part files and sort them naturally
-    json_files = sorted(input_dir.glob("mactop_metrics_part_*.json"), key=lambda p: natural_sort_key(p.name))
+    json_files = sorted(
+        input_dir.glob("mactop_metrics_part_*.json"),
+        key=lambda p: natural_sort_key(p.name),
+    )
 
     if not json_files:
-        raise ValueError(f"Error: No 'mactop_metrics_part_*.json' files found in {input_dir}")
+        raise ValueError(
+            f"Error: No 'mactop_metrics_part_*.json' files found in {input_dir}"
+        )
 
     print(f"Found {len(json_files)} metric part files in {input_dir}. Loading data...")
 
@@ -145,16 +156,24 @@ def load_and_prepare_data(input_dir: Path) -> Dict[str, List[Any]]:
             with open(file_path, "r") as f:
                 part_data = json.load(f)
                 if not isinstance(part_data, list):
-                    print(f"Warning: File {file_path} does not contain a JSON list. Skipping.")
+                    print(
+                        f"Warning: File {file_path} does not contain a JSON list. Skipping."
+                    )
                     continue
                 all_data_records.extend(part_data)
         except json.JSONDecodeError as e:
-            print(f"Warning: Failed to decode JSON from {file_path}. Details: {e}. Skipping.")
+            print(
+                f"Warning: Failed to decode JSON from {file_path}. Details: {e}. Skipping."
+            )
         except Exception as e:
-            print(f"Warning: An unexpected error occurred while reading {file_path}. Details: {e}. Skipping.")
+            print(
+                f"Warning: An unexpected error occurred while reading {file_path}. Details: {e}. Skipping."
+            )
 
     if not all_data_records:
-        raise ValueError(f"Error: No valid metric records found in any JSON part files in {input_dir}.")
+        raise ValueError(
+            f"Error: No valid metric records found in any JSON part files in {input_dir}."
+        )
 
     metrics: Dict[str, List[Any]] = {
         "cpu_usage_percent": [],
@@ -176,15 +195,21 @@ def load_and_prepare_data(input_dir: Path) -> Dict[str, List[Any]]:
             mem = record["memory_gb"]
             metrics["memory_used_gb"].append(mem["used"])
             if mem["total"] > 0:
-                metrics["memory_usage_percent"].append((mem["used"] / mem["total"]) * 100)
+                metrics["memory_usage_percent"].append(
+                    (mem["used"] / mem["total"]) * 100
+                )
             else:
-                metrics["memory_usage_percent"].append(0) # Or NaN, depending on desired behavior
-            
+                metrics["memory_usage_percent"].append(
+                    0
+                )  # Or NaN, depending on desired behavior
+
             metrics["swap_used_gb"].append(mem["swap_used"])
             if mem["swap_total"] > 0:
-                metrics["swap_usage_percent"].append((mem["swap_used"] / mem["swap_total"]) * 100)
+                metrics["swap_usage_percent"].append(
+                    (mem["swap_used"] / mem["swap_total"]) * 100
+                )
             else:
-                 metrics["swap_usage_percent"].append(0) # Or NaN
+                metrics["swap_usage_percent"].append(0)  # Or NaN
 
             power = record["power_watts"]
             metrics["cpu_power_watts"].append(power["cpu"])
@@ -200,9 +225,10 @@ def load_and_prepare_data(input_dir: Path) -> Dict[str, List[Any]]:
             print(f"Warning: Data type error in a record: {e}. Skipping this record.")
             continue
 
-
     if not metrics["timestamps"]:
-        raise ValueError("Error: No valid metric records found after parsing all files.")
+        raise ValueError(
+            "Error: No valid metric records found after parsing all files."
+        )
 
     return metrics
 
@@ -241,7 +267,7 @@ def calculate_statistics(data: List[float]) -> Dict[str, float]:
 
 
 def generate_report(
-    all_metrics_data: Dict[str, List[Any]]
+    all_metrics_data: Dict[str, List[Any]],
 ) -> Tuple[str, Dict[str, Dict[str, float]]]:
     """
     Generates a human-readable analysis report from the metrics data.
@@ -254,7 +280,7 @@ def generate_report(
         formatted report string and a dictionary of the calculated statistics.
     """
     sample_count = len(all_metrics_data["timestamps"])
-    
+
     duration_str = "N/A (dateutil not installed or timestamps not parsed)"
     if HAS_DATEUTIL and sample_count > 1:
         try:
@@ -264,7 +290,6 @@ def generate_report(
             duration_str = f"{duration_seconds:.2f} seconds"
         except Exception as e:
             print(f"Warning: Could not parse timestamps for duration calculation: {e}")
-
 
     report_lines = [
         "========================================",
@@ -307,7 +332,7 @@ def _plot_metric(ax, df, friendly_name, value_col=None):
         y=y_col,
         ax=ax,
         label="Original Data",
-        color=sns.color_palette("muted")[0]
+        color=sns.color_palette("muted")[0],
     )
     try:
         sns.regplot(
@@ -319,8 +344,8 @@ def _plot_metric(ax, df, friendly_name, value_col=None):
             scatter=False,
             label="Smoothed Trend",
             color=sns.color_palette("muted")[1],
-            line_kws={'linewidth': 2.5},
-            ci=None
+            line_kws={"linewidth": 2.5},
+            ci=None,
         )
     except Exception as e:
         print(f"  - Could not generate smoothed trend for '{friendly_name}': {e}")
@@ -351,7 +376,9 @@ def create_and_save_plots_seaborn(
                 metrics_to_plot.append((friendly_name, key))
             else:
                 num_points = len(all_metrics_data.get(key, []))
-                print(f"Skipping plot for '{friendly_name}' due to insufficient data (found {num_points} points).")
+                print(
+                    f"Skipping plot for '{friendly_name}' due to insufficient data (found {num_points} points)."
+                )
 
         num_plots = len(metrics_to_plot)
         if num_plots == 0:
@@ -368,7 +395,7 @@ def create_and_save_plots_seaborn(
             nrows=nrows,
             ncols=ncols,
             figsize=(fig_width, fig_height),
-            squeeze=False
+            squeeze=False,
         )
         axes_flat = axes.flatten()
         with sns.axes_style("whitegrid"):
@@ -376,13 +403,15 @@ def create_and_save_plots_seaborn(
                 ax = axes_flat[i]
                 metric_data = all_metrics_data[key]
                 num_points = len(metric_data)
-                df = pd.DataFrame({"Sample Index": range(num_points), "Value": metric_data})
+                df = pd.DataFrame(
+                    {"Sample Index": range(num_points), "Value": metric_data}
+                )
                 _plot_metric(ax, df, friendly_name, value_col="Value")
-                ax.set_title(friendly_name, fontsize=18, fontweight='bold', pad=15)
+                ax.set_title(friendly_name, fontsize=18, fontweight="bold", pad=15)
                 ax.legend(frameon=True, fontsize=12)
         for i in range(num_plots, len(axes_flat)):
-            axes_flat[i].axis('off')
-        fig.suptitle("Mactop Metrics Analysis", fontsize=28, fontweight='bold')
+            axes_flat[i].axis("off")
+        fig.suptitle("Mactop Metrics Analysis", fontsize=28, fontweight="bold")
         fig.tight_layout(rect=(0, 0, 1, 0.96))
         plot_path = output_dir / "combined_metrics_chart.png"
         try:
@@ -400,28 +429,37 @@ def create_and_save_plots_seaborn(
             metric_data = all_metrics_data.get(key)
             if not metric_data or len(metric_data) < 2:
                 num_points = len(metric_data) if metric_data else 0
-                print(f"Skipping plot for '{friendly_name}' due to insufficient data (found {num_points} points).")
+                print(
+                    f"Skipping plot for '{friendly_name}' due to insufficient data (found {num_points} points)."
+                )
                 continue
             num_points = len(metric_data)
             print(f"  - Processing '{friendly_name}' with {num_points} data points...")
-            df = pd.DataFrame({"Sample Index": range(num_points), friendly_name: metric_data})
+            df = pd.DataFrame(
+                {"Sample Index": range(num_points), friendly_name: metric_data}
+            )
             fig, ax = plt.subplots(figsize=(14, 7))
             _plot_metric(ax, df, friendly_name)
-            ax.set_title(f"{friendly_name} Over Time", fontsize=18, fontweight='bold', pad=20)
+            ax.set_title(
+                f"{friendly_name} Over Time", fontsize=18, fontweight="bold", pad=20
+            )
             plt.xticks(rotation=0)
             ax.legend(title="Legend", frameon=True, fontsize=12)
             fig.tight_layout()
-            filename_key = key.replace(" ", "_").replace("(", "").replace(")", "").replace("%", "percent")
+            filename_key = (
+                key.replace(" ", "_")
+                .replace("(", "")
+                .replace(")", "")
+                .replace("%", "percent")
+            )
             plot_path = output_dir / f"{filename_key}_chart_seaborn.png"
             try:
-                fig.savefig(plot_path, dpi=150, bbox_inches='tight')
+                fig.savefig(plot_path, dpi=150, bbox_inches="tight")
                 print(f"  - Saved {plot_path.name}")
             except Exception as e:
                 print(f"  - Failed to save plot for '{friendly_name}': {e}")
             finally:
                 plt.close(fig)
-
-
 
 
 def main() -> None:
@@ -482,7 +520,9 @@ Example usage:
 
         # 3. Optionally create and save plots
         if args.plot:
-            create_and_save_plots_seaborn(metrics_data, args.output_dir, combine=args.combine)
+            create_and_save_plots_seaborn(
+                metrics_data, args.output_dir, combine=args.combine
+            )
         print("Analysis complete.")
 
     except (FileNotFoundError, ValueError, KeyError) as e:
