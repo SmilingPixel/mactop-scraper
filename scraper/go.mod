@@ -3,7 +3,7 @@ module scraper
 go 1.24.3
 
 require (
-	github.com/cloudwego/hertz v0.10.2
+	github.com/cloudwego/hertz v0.10.3
 	github.com/prometheus/common v0.67.1
 	github.com/rs/zerolog v1.34.0
 )
