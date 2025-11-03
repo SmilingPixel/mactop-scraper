@@ -3,8 +3,8 @@ module scraper
 go 1.24.3
 
 require (
-	github.com/cloudwego/hertz v0.10.2
-	github.com/prometheus/common v0.67.1
+	github.com/cloudwego/hertz v0.10.3
+	github.com/prometheus/common v0.67.2
 	github.com/rs/zerolog v1.34.0
 )
 
@@ -29,7 +29,7 @@ require (
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	golang.org/x/arch v0.18.0 // indirect
 	golang.org/x/exp v0.0.0-20250606033433-dcc06ee1d476 // indirect
-	golang.org/x/sys v0.36.0 // indirect
-	golang.org/x/text v0.29.0 // indirect
+	golang.org/x/sys v0.37.0 // indirect
+	golang.org/x/text v0.30.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 )
